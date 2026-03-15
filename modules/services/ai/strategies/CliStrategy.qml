@@ -1,45 +1,28 @@
 import QtQuick
 
 // Base strategy for CLI-backed AI tools.
-// Instead of HTTP, these providers run a subprocess and communicate via stdout.
-// Ai.qml writes the conversation to a JSON file (conversationFile) then calls
-// getCliCommand() to get the argv array for the subprocess.
+// Ai.qml routes CLI-model requests here instead of the HTTP/curl path.
 //
-// Output protocol (newline-delimited JSON, read by SplitParser):
-//   {"t":"d","x":"text chunk"}    -- streamed text delta
-//   {"t":"e","x":"error message"} -- error, shown in chat bubble
-//   {"t":"z"}                     -- done signal (optional; process exit also suffices)
+// Session lifecycle:
+//   - First turn (no sessionId): subclass builds a full conversation transcript
+//     and starts a new CLI session.
+//   - Subsequent turns (sessionId set): subclass uses --resume <sessionId> and
+//     sends only the latest user message; context is held by the CLI process.
+//   - The sessionId is extracted from the stream and stored per-chat in Ai.qml.
 ApiStrategy {
     property bool is_cli: true
 
     // Returns the argv array for the CLI subprocess.
-    // conversationFile: absolute path to the JSON file written by Ai.qml, containing:
-    //   { messages: [{role, content}], systemPrompt: string, model: string }
-    // model: the AiModel instance
-    function getCliCommand(conversationFile, model) {
+    // prompt:    full conversation transcript (first turn) OR latest user message (resume)
+    // model:     AiModel instance
+    // sessionId: active session ID, or "" for the first turn of a chat
+    function getCliCommand(prompt, model, sessionId) {
         return [];
     }
 
-    // Parse one line of stdout from the subprocess.
-    // Returns { content: string, done: bool }
+    // Parse one stdout line from the subprocess.
+    // Returns { content: string, done: bool, sessionId: string|null }
     function parseCliStreamChunk(line) {
-        let trimmed = line.trim();
-        if (trimmed === "")
-            return { content: "", done: false };
-
-        try {
-            let json = JSON.parse(trimmed);
-            if (json.t === "d" && json.x)
-                return { content: json.x, done: false };
-            if (json.t === "e" && json.x)
-                return { content: "Error: " + json.x, done: true };
-            if (json.t === "z")
-                return { content: "", done: true };
-        } catch (e) {
-            // Non-JSON line — pass through as plain text
-            return { content: trimmed + "\n", done: false };
-        }
-
-        return { content: "", done: false };
+        return { content: "", done: false, sessionId: null };
     }
 }

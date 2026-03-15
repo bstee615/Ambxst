@@ -420,29 +420,27 @@ Singleton {
     // CLI REQUEST PATH
     // ============================================
 
-    // FileView for writing the conversation JSON consumed by the CLI script
-    FileView {
-        id: cliConvFileView
-        printErrors: false
-    }
+    // Maps Ambxst chatId → claude session_id.
+    // Populated from the `result` event at the end of each CLI stream.
+    // A missing entry means no active session (first turn or loaded history).
+    property var cliSessions: ({})
 
     function runCliRequest() {
-        // Build the conversation payload for the Python bridge script
-        let messages = [];
-        for (let i = 0; i < currentChat.length; i++) {
-            let msg = currentChat[i];
-            if (msg.role === "system")
-                continue;
-            messages.push({ role: msg.role, content: msg.content || "" });
+        let sessionId = cliSessions[currentChatId] || "";
+
+        let prompt;
+        if (sessionId) {
+            // Active session: send only the latest user message.
+            // Claude holds the full context server-side.
+            prompt = _cliLastUserMessage();
+        } else {
+            // No active session: encode the full conversation history as a
+            // transcript so the AI has context on the first turn (or when
+            // continuing a chat loaded from history with no known session).
+            prompt = _cliTranscript();
         }
 
-        let convData = JSON.stringify({
-            messages: messages,
-            systemPrompt: Config.ai.systemPrompt || "",
-            model: currentModel ? currentModel.model : "default"
-        });
-
-        // Add placeholder assistant message
+        // Add placeholder assistant message for streaming
         let streamChat = Array.from(currentChat);
         streamChat.push({
             role: "assistant",
@@ -451,44 +449,33 @@ Singleton {
         });
         currentChat = streamChat;
 
-        // Ensure tmpDir exists, then write the conversation file and run the script
-        cliSetupProcess.convData = convData;
-        cliSetupProcess.command = ["/usr/bin/mkdir", "-p", tmpDir];
-        cliSetupProcess.running = true;
+        cliProcess.command = currentStrategy.getCliCommand(prompt, currentModel, sessionId);
+        cliProcess.running = true;
     }
 
-    // Step 1: ensure tmpDir exists
-    Process {
-        id: cliSetupProcess
-        property string convData: ""
-
-        onExited: exitCode => {
-            if (exitCode !== 0) {
-                root.lastError = "Failed to create temp directory for CLI request";
-                root.isLoading = false;
-                return;
-            }
-
-            let convFile = root.tmpDir + "/conversation.json";
-            cliConvFileView.path = convFile;
-            cliConvFileView.setText(convData);
-
-            // Wait a tick for the FileView write to flush, then launch the process
-            Qt.callLater(() => {
-                let cmd = root.currentStrategy.getCliCommand(convFile, root.currentModel);
-                if (!cmd || cmd.length === 0) {
-                    let errChat = Array.from(root.currentChat);
-                    if (errChat.length > 0) {
-                        errChat[errChat.length - 1].content = "Error: CLI strategy returned an empty command.";
-                        root.currentChat = errChat;
-                    }
-                    root.isLoading = false;
-                    return;
-                }
-                cliProcess.command = cmd;
-                cliProcess.running = true;
-            });
+    function _cliLastUserMessage() {
+        for (let i = currentChat.length - 1; i >= 0; i--) {
+            if (currentChat[i].role === "user")
+                return currentChat[i].content || "";
         }
+        return "";
+    }
+
+    function _cliTranscript() {
+        let parts = [];
+        let sys = Config.ai.systemPrompt || "";
+        if (sys)
+            parts.push("[System]\n" + sys.trim());
+
+        for (let i = 0; i < currentChat.length; i++) {
+            let msg = currentChat[i];
+            if (msg.role === "user")
+                parts.push("[Human]\n" + (msg.content || ""));
+            else if (msg.role === "assistant" && msg.content && msg.content.trim() !== "")
+                parts.push("[Assistant]\n" + msg.content.trim());
+        }
+
+        return parts.join("\n\n").trim();
     }
 
     function writeTempBody(jsonBody, headers, endpoint) {
@@ -636,19 +623,28 @@ Singleton {
     }
 
     // CLI process — used by CLI-based providers (Claude Code, etc.)
-    // Uses SplitParser for streaming output so responses appear incrementally.
+    // Uses SplitParser so each stdout line is processed as it arrives,
+    // giving the same streaming / typewriter effect as the HTTP providers.
     Process {
         id: cliProcess
 
         stdout: SplitParser {
             onRead: data => {
                 let result = root.currentStrategy.parseCliStreamChunk(data);
+
                 if (result.content) {
                     let newChat = Array.from(root.currentChat);
                     if (newChat.length > 0) {
                         newChat[newChat.length - 1].content += result.content;
                         root.currentChat = newChat;
                     }
+                }
+
+                // Persist the session_id so subsequent turns use --resume
+                if (result.sessionId) {
+                    let sessions = Object.assign({}, root.cliSessions);
+                    sessions[root.currentChatId] = result.sessionId;
+                    root.cliSessions = sessions;
                 }
             }
         }
@@ -660,13 +656,14 @@ Singleton {
         onExited: exitCode => {
             root.isLoading = false;
 
-            // If nothing was streamed, show a fallback message
+            // If nothing was streamed, show a fallback (e.g. auth error on stderr)
             let lastContent = root.currentChat.length > 0
                 ? root.currentChat[root.currentChat.length - 1].content
                 : "";
 
             if (lastContent.trim() === "") {
-                let fallback = cliStderr.text.trim() || ("No response from CLI tool (exit code " + exitCode + ").");
+                let fallback = cliStderr.text.trim()
+                    || ("No response from claude CLI (exit code " + exitCode + ").");
                 let newChat = Array.from(root.currentChat);
                 if (newChat.length > 0) {
                     newChat[newChat.length - 1].content = fallback;
@@ -717,6 +714,10 @@ Singleton {
         currentChat = [];
         currentChatId = Date.now().toString();
         chatModelChanged();
+        // New chat gets a fresh CLI session (no --resume)
+        let sessions = Object.assign({}, cliSessions);
+        delete sessions[currentChatId];
+        cliSessions = sessions;
     }
 
     function saveCurrentChat() {
