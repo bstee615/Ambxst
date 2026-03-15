@@ -102,6 +102,7 @@ Singleton {
     property GroqApiStrategy groqStrategy: GroqApiStrategy {}
     property OllamaApiStrategy ollamaStrategy: OllamaApiStrategy {}
     property ClaudeCodeCliStrategy claudecodeStrategy: ClaudeCodeCliStrategy {}
+    property CopilotCliStrategy copilotCliStrategy: CopilotCliStrategy {}
 
     property ApiStrategy currentStrategy: openaiStrategy
 
@@ -114,6 +115,7 @@ Singleton {
         case "groq": return groqStrategy;
         case "ollama": return ollamaStrategy;
         case "claudecode": return claudecodeStrategy;
+        case "copilot": return copilotCliStrategy;
         case "custom": return openaiStrategy; // custom endpoints use OpenAI-compatible format by default
         default: return openaiStrategy;
         }
@@ -424,6 +426,34 @@ Singleton {
     // Populated from the `result` event at the end of each CLI stream.
     // A missing entry means no active session (first turn or loaded history).
     property var cliSessions: ({})
+
+    // Opens a terminal window running the CLI tool for the current chat.
+    // Claude Code: resumes the active session with --resume <id> (or starts fresh).
+    // Copilot CLI: opens gh copilot suggest in the terminal.
+    // Respects $TERMINAL; falls back to kitty (most common on Hyprland).
+    function openCliSessionInTerminal() {
+        if (!currentModel || !currentModel.is_cli)
+            return;
+
+        let term = Quickshell.env("TERMINAL") || "kitty";
+        let sessionId = cliSessions[currentChatId] || "";
+        let cmd;
+
+        if (currentModel.provider === "claudecode")
+            cmd = sessionId ? "claude --resume " + sessionId : "claude";
+        else if (currentModel.provider === "copilot")
+            cmd = "gh copilot suggest";
+        else
+            return;
+
+        openTerminalProcess.command = [term, "-e", "bash", "-c", cmd];
+        openTerminalProcess.running = true;
+    }
+
+    Process {
+        id: openTerminalProcess
+        // Fire-and-forget terminal spawn; no output handling needed
+    }
 
     function runCliRequest() {
         let sessionId = cliSessions[currentChatId] || "";
@@ -911,6 +941,22 @@ for f in files:
             pendingFetches++;
             fetchProcessOllama.command = ["bash", "-c", "curl -s http://127.0.0.1:11434/api/tags"];
             fetchProcessOllama.running = true;
+        }
+
+        // GitHub Copilot CLI (uses `gh copilot suggest` — requires `gh auth login`)
+        let copilotEnabled = KeyStore.hasKey("copilot");
+        if (copilotEnabled) {
+            let m = aiModelFactory.createObject(root, {
+                name: "GitHub Copilot (CLI)",
+                icon: Qt.resolvedUrl("../../../assets/aiproviders/copilot.svg"),
+                description: "Shell command suggestions via gh copilot suggest",
+                endpoint: "",
+                model: "copilot",
+                provider: "copilot",
+                requires_key: false,
+                is_cli: true
+            });
+            if (m) mergeModels([m]);
         }
 
         // Claude Code CLI (uses the installed `claude` binary — no API key required)

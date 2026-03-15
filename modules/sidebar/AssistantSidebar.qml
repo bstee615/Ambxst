@@ -1501,6 +1501,32 @@ Item {
 
                                         onClicked: zenityProcess.running = true
                                     }
+                                    // Open the active CLI session in a terminal window.
+                                    // Claude Code: resumes session with --resume <id>.
+                                    // Copilot CLI: opens gh copilot suggest.
+                                    Button {
+                                        Layout.preferredWidth: 32
+                                        Layout.preferredHeight: 32
+                                        flat: true
+                                        visible: Ai.currentModel && Ai.currentModel.is_cli
+
+                                        contentItem: Text {
+                                            text: Icons.terminal
+                                            font.family: Icons.font
+                                            font.pixelSize: 18
+                                            color: Colors.outline
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+
+                                        background: Rectangle {
+                                            color: parent.hovered ? Colors.surfaceBright : "transparent"
+                                            radius: 16
+                                        }
+
+                                        onClicked: Ai.openCliSessionInTerminal()
+                                    }
+
                                     Button {
                                         Layout.preferredWidth: 32
                                         Layout.preferredHeight: 32

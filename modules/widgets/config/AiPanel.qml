@@ -39,7 +39,7 @@ Item {
 
             // Providers
             Repeater {
-                model: ["gemini", "openai", "anthropic", "mistral", "groq", "ollama", "claudecode"]
+                model: ["gemini", "openai", "anthropic", "mistral", "groq", "ollama", "claudecode", "copilot"]
                 delegate: StyledRect {
                     required property string modelData
                     Layout.fillWidth: true
@@ -50,7 +50,7 @@ Item {
                     implicitHeight: providerCol.implicitHeight + 32
 
                     // CLI-only providers (no API key — just enable/disable)
-                    readonly property bool isCli: modelData === "ollama" || modelData === "claudecode"
+                    readonly property bool isCli: modelData === "ollama" || modelData === "claudecode" || modelData === "copilot"
 
                     ColumnLayout {
                         id: providerCol
@@ -63,6 +63,7 @@ Item {
                             Text {
                                 text: {
                                     if (modelData === "claudecode") return "Claude Code (CLI)";
+                                    if (modelData === "copilot") return "GitHub Copilot (CLI)";
                                     return modelData.charAt(0).toUpperCase() + modelData.slice(1);
                                 }
                                 font.family: Config.theme.font
@@ -84,8 +85,10 @@ Item {
 
                         // Show description for CLI tools
                         Text {
-                            visible: modelData === "claudecode"
-                            text: "Uses the installed `claude` binary. Run `claude auth login` to authenticate."
+                            visible: modelData === "claudecode" || modelData === "copilot"
+                            text: modelData === "copilot"
+                                ? "Uses `gh copilot suggest`. Run `gh auth login` and install the Copilot extension."
+                                : "Uses the installed `claude` binary. Run `claude auth login` to authenticate."
                             font.family: Config.theme.font
                             font.pixelSize: 11
                             color: Colors.outline
