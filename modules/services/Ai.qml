@@ -420,9 +420,14 @@ Singleton {
     // CLI REQUEST PATH
     // ============================================
 
+    // FileView for writing the conversation JSON consumed by the CLI script
+    FileView {
+        id: cliConvFileView
+        printErrors: false
+    }
+
     function runCliRequest() {
-        // Build the message list for the CLI strategy (without system message —
-        // it is passed separately to getCliCommand)
+        // Build the conversation payload for the Python bridge script
         let messages = [];
         for (let i = 0; i < currentChat.length; i++) {
             let msg = currentChat[i];
@@ -431,16 +436,11 @@ Singleton {
             messages.push({ role: msg.role, content: msg.content || "" });
         }
 
-        let systemPrompt = Config.ai.systemPrompt || "";
-        let cmd = currentStrategy.getCliCommand(messages, currentModel, systemPrompt);
-
-        if (!cmd || cmd.length === 0) {
-            let errChat = Array.from(currentChat);
-            errChat.push({ role: "assistant", content: "Error: CLI strategy returned an empty command." });
-            currentChat = errChat;
-            isLoading = false;
-            return;
-        }
+        let convData = JSON.stringify({
+            messages: messages,
+            systemPrompt: Config.ai.systemPrompt || "",
+            model: currentModel ? currentModel.model : "default"
+        });
 
         // Add placeholder assistant message
         let streamChat = Array.from(currentChat);
@@ -451,8 +451,44 @@ Singleton {
         });
         currentChat = streamChat;
 
-        cliProcess.command = cmd;
-        cliProcess.running = true;
+        // Ensure tmpDir exists, then write the conversation file and run the script
+        cliSetupProcess.convData = convData;
+        cliSetupProcess.command = ["/usr/bin/mkdir", "-p", tmpDir];
+        cliSetupProcess.running = true;
+    }
+
+    // Step 1: ensure tmpDir exists
+    Process {
+        id: cliSetupProcess
+        property string convData: ""
+
+        onExited: exitCode => {
+            if (exitCode !== 0) {
+                root.lastError = "Failed to create temp directory for CLI request";
+                root.isLoading = false;
+                return;
+            }
+
+            let convFile = root.tmpDir + "/conversation.json";
+            cliConvFileView.path = convFile;
+            cliConvFileView.setText(convData);
+
+            // Wait a tick for the FileView write to flush, then launch the process
+            Qt.callLater(() => {
+                let cmd = root.currentStrategy.getCliCommand(convFile, root.currentModel);
+                if (!cmd || cmd.length === 0) {
+                    let errChat = Array.from(root.currentChat);
+                    if (errChat.length > 0) {
+                        errChat[errChat.length - 1].content = "Error: CLI strategy returned an empty command.";
+                        root.currentChat = errChat;
+                    }
+                    root.isLoading = false;
+                    return;
+                }
+                cliProcess.command = cmd;
+                cliProcess.running = true;
+            });
+        }
     }
 
     function writeTempBody(jsonBody, headers, endpoint) {
