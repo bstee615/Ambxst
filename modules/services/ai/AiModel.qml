@@ -13,4 +13,5 @@ QtObject {
     property string key_get_description: ""
     property string api_format: "" // Legacy compat
     property string customCurlTemplate: "" // For custom providers: full curl command template
+    property bool is_cli: false // True for CLI-based providers (e.g. Claude Code)
 }

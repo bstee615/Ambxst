@@ -39,7 +39,7 @@ Item {
 
             // Providers
             Repeater {
-                model: ["gemini", "openai", "anthropic", "mistral", "groq", "ollama"]
+                model: ["gemini", "openai", "anthropic", "mistral", "groq", "ollama", "claudecode"]
                 delegate: StyledRect {
                     required property string modelData
                     Layout.fillWidth: true
@@ -48,6 +48,9 @@ Item {
                     
                     // We need a wrapper to give it a height based on content
                     implicitHeight: providerCol.implicitHeight + 32
+
+                    // CLI-only providers (no API key — just enable/disable)
+                    readonly property bool isCli: modelData === "ollama" || modelData === "claudecode"
 
                     ColumnLayout {
                         id: providerCol
@@ -58,7 +61,10 @@ Item {
                         RowLayout {
                             Layout.fillWidth: true
                             Text {
-                                text: modelData.charAt(0).toUpperCase() + modelData.slice(1)
+                                text: {
+                                    if (modelData === "claudecode") return "Claude Code (CLI)";
+                                    return modelData.charAt(0).toUpperCase() + modelData.slice(1);
+                                }
                                 font.family: Config.theme.font
                                 font.pixelSize: 16
                                 font.weight: Font.Bold
@@ -66,11 +72,25 @@ Item {
                                 Layout.fillWidth: true
                             }
                             Text {
-                                text: KeyStore.hasKey(modelData) ? "Key Configured" : "Not Configured"
+                                text: {
+                                    if (isCli) return KeyStore.hasKey(modelData) ? "Enabled" : "Not Enabled";
+                                    return KeyStore.hasKey(modelData) ? "Key Configured" : "Not Configured";
+                                }
                                 font.family: Config.theme.font
                                 font.pixelSize: 12
                                 color: KeyStore.hasKey(modelData) ? Colors.success : Colors.outline
                             }
+                        }
+
+                        // Show description for CLI tools
+                        Text {
+                            visible: modelData === "claudecode"
+                            text: "Uses the installed `claude` binary. Run `claude auth login` to authenticate."
+                            font.family: Config.theme.font
+                            font.pixelSize: 11
+                            color: Colors.outline
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
                         }
 
                         RowLayout {
@@ -78,7 +98,7 @@ Item {
                             spacing: 12
 
                             TextField {
-                                visible: modelData !== "ollama"
+                                visible: !isCli
                                 id: keyInput
                                 Layout.fillWidth: true
                                 placeholderText: "Enter API Key..."
@@ -86,7 +106,7 @@ Item {
                                 font.family: Config.theme.font
                                 color: Colors.overSurface
                                 padding: 6
-                                
+
                                 background: StyledRect {
                                     variant: "internalbg"
                                     radius: Styling.radius(4)
@@ -101,16 +121,16 @@ Item {
                             }
                             Button {
                                 id: saveButton
-                                text: modelData === "ollama" ? (KeyStore.hasKey("ollama") ? "Configured" : "Enable") : "Save"
-                                visible: modelData === "ollama" ? !KeyStore.hasKey("ollama") : true
+                                text: isCli ? (KeyStore.hasKey(modelData) ? "Enabled" : "Enable") : "Save"
+                                visible: isCli ? !KeyStore.hasKey(modelData) : true
                                 hoverEnabled: true
                                 leftPadding: 6
                                 rightPadding: 6
                                 topPadding: 4
                                 bottomPadding: 4
                                 onClicked: {
-                                    if (modelData === "ollama") {
-                                        KeyStore.setKey("ollama", "enabled")
+                                    if (isCli) {
+                                        KeyStore.setKey(modelData, "enabled")
                                     } else if (keyInput.text !== "") {
                                         KeyStore.setKey(modelData, keyInput.text)
                                         keyInput.text = ""
@@ -142,7 +162,7 @@ Item {
                             Button {
                                 id: clearButton
                                 visible: KeyStore.hasKey(modelData)
-                                text: modelData === "ollama" ? "Disable" : "Clear"
+                                text: isCli ? "Disable" : "Clear"
                                 leftPadding: 6
                                 rightPadding: 6
                                 topPadding: 4

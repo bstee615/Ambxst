@@ -101,6 +101,7 @@ Singleton {
     property MistralApiStrategy mistralStrategy: MistralApiStrategy {}
     property GroqApiStrategy groqStrategy: GroqApiStrategy {}
     property OllamaApiStrategy ollamaStrategy: OllamaApiStrategy {}
+    property ClaudeCodeCliStrategy claudecodeStrategy: ClaudeCodeCliStrategy {}
 
     property ApiStrategy currentStrategy: openaiStrategy
 
@@ -112,6 +113,7 @@ Singleton {
         case "mistral": return mistralStrategy;
         case "groq": return groqStrategy;
         case "ollama": return ollamaStrategy;
+        case "claudecode": return claudecodeStrategy;
         case "custom": return openaiStrategy; // custom endpoints use OpenAI-compatible format by default
         default: return openaiStrategy;
         }
@@ -353,6 +355,12 @@ Singleton {
             return;
         }
 
+        // CLI providers (e.g. Claude Code) bypass HTTP entirely
+        if (currentModel.is_cli) {
+            runCliRequest();
+            return;
+        }
+
         // Determine endpoint — Gemini streaming uses a different endpoint
         let endpoint;
         let isGemini = currentModel.provider === "gemini";
@@ -406,6 +414,45 @@ Singleton {
         currentChat = streamChat;
 
         writeTempBody(JSON.stringify(body), headers, endpoint);
+    }
+
+    // ============================================
+    // CLI REQUEST PATH
+    // ============================================
+
+    function runCliRequest() {
+        // Build the message list for the CLI strategy (without system message —
+        // it is passed separately to getCliCommand)
+        let messages = [];
+        for (let i = 0; i < currentChat.length; i++) {
+            let msg = currentChat[i];
+            if (msg.role === "system")
+                continue;
+            messages.push({ role: msg.role, content: msg.content || "" });
+        }
+
+        let systemPrompt = Config.ai.systemPrompt || "";
+        let cmd = currentStrategy.getCliCommand(messages, currentModel, systemPrompt);
+
+        if (!cmd || cmd.length === 0) {
+            let errChat = Array.from(currentChat);
+            errChat.push({ role: "assistant", content: "Error: CLI strategy returned an empty command." });
+            currentChat = errChat;
+            isLoading = false;
+            return;
+        }
+
+        // Add placeholder assistant message
+        let streamChat = Array.from(currentChat);
+        streamChat.push({
+            role: "assistant",
+            content: "",
+            model: currentModel ? currentModel.name : "Unknown"
+        });
+        currentChat = streamChat;
+
+        cliProcess.command = cmd;
+        cliProcess.running = true;
     }
 
     function writeTempBody(jsonBody, headers, endpoint) {
@@ -549,6 +596,49 @@ Singleton {
             }
 
             root.responseBuffer = "";
+        }
+    }
+
+    // CLI process — used by CLI-based providers (Claude Code, etc.)
+    // Uses SplitParser for streaming output so responses appear incrementally.
+    Process {
+        id: cliProcess
+
+        stdout: SplitParser {
+            onRead: data => {
+                let result = root.currentStrategy.parseCliStreamChunk(data);
+                if (result.content) {
+                    let newChat = Array.from(root.currentChat);
+                    if (newChat.length > 0) {
+                        newChat[newChat.length - 1].content += result.content;
+                        root.currentChat = newChat;
+                    }
+                }
+            }
+        }
+
+        stderr: StdioCollector {
+            id: cliStderr
+        }
+
+        onExited: exitCode => {
+            root.isLoading = false;
+
+            // If nothing was streamed, show a fallback message
+            let lastContent = root.currentChat.length > 0
+                ? root.currentChat[root.currentChat.length - 1].content
+                : "";
+
+            if (lastContent.trim() === "") {
+                let fallback = cliStderr.text.trim() || ("No response from CLI tool (exit code " + exitCode + ").");
+                let newChat = Array.from(root.currentChat);
+                if (newChat.length > 0) {
+                    newChat[newChat.length - 1].content = fallback;
+                    root.currentChat = newChat;
+                }
+            }
+
+            root.saveCurrentChat();
         }
     }
 
@@ -784,6 +874,32 @@ for f in files:
             pendingFetches++;
             fetchProcessOllama.command = ["bash", "-c", "curl -s http://127.0.0.1:11434/api/tags"];
             fetchProcessOllama.running = true;
+        }
+
+        // Claude Code CLI (uses the installed `claude` binary — no API key required)
+        let claudecodeEnabled = KeyStore.hasKey("claudecode");
+        if (claudecodeEnabled) {
+            let claudecodeModels = [
+                { id: "claude-opus-4-5", name: "Claude Opus 4.5 (Code)" },
+                { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5 (Code)" },
+                { id: "claude-haiku-4-5", name: "Claude Haiku 4.5 (Code)" }
+            ];
+            let newModels = [];
+            for (let i = 0; i < claudecodeModels.length; i++) {
+                let item = claudecodeModels[i];
+                let m = aiModelFactory.createObject(root, {
+                    name: item.name,
+                    icon: Qt.resolvedUrl("../../../assets/aiproviders/claudecode.svg"),
+                    description: "Claude Code CLI",
+                    endpoint: "",
+                    model: item.id,
+                    provider: "claudecode",
+                    requires_key: false,
+                    is_cli: true
+                });
+                if (m) newModels.push(m);
+            }
+            mergeModels(newModels);
         }
 
         if (pendingFetches === 0) {
