@@ -336,7 +336,7 @@ Item {
     function openWithAi(sessionName, tool) {
         let aiCmd = tool === "claude"
             ? "claude --dangerously-skip-permissions"
-            : "gh copilot --yolo";
+            : "copilot --yolo";
         let cmd = `tmux new-window -t '${sessionName}' '${aiCmd}'; setsid kitty -e tmux attach-session -t '${sessionName}' < /dev/null > /dev/null 2>&1 &`;
         openAiProcess.command = ["bash", "-c", `cd "$HOME" && ${cmd}`];
         openAiProcess.running = true;

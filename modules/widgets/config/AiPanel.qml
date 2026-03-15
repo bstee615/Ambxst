@@ -93,7 +93,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 text: modelData === "copilot"
-                                    ? "Uses `gh copilot suggest` with your existing `gh` credentials."
+                                    ? "Uses the `copilot` CLI (npm install -g @github/copilot) with your GitHub credentials."
                                     : "Uses the installed `claude` binary with your existing credentials."
                                 font.family: Config.theme.font
                                 font.pixelSize: 11
@@ -132,7 +132,7 @@ Item {
                             function openAuth(provider) {
                                 let term = Quickshell.env("TERMINAL") || "kitty";
                                 let cmd = provider === "copilot"
-                                    ? "gh auth login && gh extension install github/gh-copilot"
+                                    ? "npm install -g @github/copilot && copilot login"
                                     : "claude auth login";
                                 authProcess.command = [term, "-e", "bash", "-c", cmd + "; echo Done — press Enter to close; read"];
                                 authProcess.running = true;
