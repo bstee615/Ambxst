@@ -76,8 +76,8 @@ Item {
             itemY += 48; // All items before are collapsed (base height)
         }
 
-        // Calculate expanded item height - always 3 options (Open, Rename, Quit)
-        var listHeight = 36 * 3;
+        // Calculate expanded item height - 5 options (Open, Rename, Quit, Claude, Copilot)
+        var listHeight = 36 * 5;
         var expandedHeight = 48 + 4 + listHeight + 8;
 
         // Calculate max valid scroll position
@@ -333,6 +333,15 @@ Item {
         attachProcess.running = true;
     }
 
+    function openWithAi(sessionName, tool) {
+        let aiCmd = tool === "claude"
+            ? "claude --dangerously-skip-permissions"
+            : "gh copilot --yolo";
+        let cmd = `tmux new-window -t '${sessionName}' '${aiCmd}'; setsid kitty -e tmux attach-session -t '${sessionName}' < /dev/null > /dev/null 2>&1 &`;
+        openAiProcess.command = ["bash", "-c", `cd "$HOME" && ${cmd}`];
+        openAiProcess.running = true;
+    }
+
     function switchToWindow(sessionName, windowIndex) {
         if (!sessionName || windowIndex === undefined)
             return;
@@ -423,6 +432,15 @@ Item {
 
         onStarted: function () {
             // Cerrar el dashboard
+            Visibilities.setActiveModule("");
+        }
+    }
+
+    Process {
+        id: openAiProcess
+        running: false
+
+        onStarted: function () {
             Visibilities.setActiveModule("");
         }
     }
@@ -607,7 +625,7 @@ Item {
                         // Execute selected option when menu is expanded
                         let session = root.filteredSessions[root.expandedItemIndex];
                         if (session && !session.isCreateButton && !session.isCreateSpecificButton) {
-                            // Build options array (Open, Rename, Quit)
+                            // Build options array (Open, Rename, Quit, Claude, Copilot)
                             let options = [function () {
                                     root.attachToSession(session.name);
                                 }, function () {
@@ -615,6 +633,12 @@ Item {
                                     root.expandedItemIndex = -1;
                                 }, function () {
                                     root.enterDeleteMode(session.name);
+                                    root.expandedItemIndex = -1;
+                                }, function () {
+                                    root.openWithAi(session.name, "claude");
+                                    root.expandedItemIndex = -1;
+                                }, function () {
+                                    root.openWithAi(session.name, "copilot");
                                     root.expandedItemIndex = -1;
                                 }];
 
@@ -681,8 +705,8 @@ Item {
 
                 onDownPressed: {
                     if (root.expandedItemIndex >= 0) {
-                        // Navigate options when menu is expanded - always 3 options
-                        if (root.selectedOptionIndex < 2) {
+                        // Navigate options when menu is expanded - always 5 options
+                        if (root.selectedOptionIndex < 4) {
                             root.selectedOptionIndex++;
                             root.keyboardNavigation = true;
                         }
@@ -793,7 +817,7 @@ Item {
                         for (var i = 0; i < currentIndex && i < sessionsModel.count; i++) {
                             var itemHeight = 48;
                             if (i === root.expandedItemIndex && !root.deleteMode && !root.renameMode) {
-                                var listHeight = 36 * 3; // Always 3 options
+                                var listHeight = 36 * 5; // 5 options
                                 itemHeight = 48 + 4 + listHeight + 8;
                             }
                             itemY += itemHeight;
@@ -801,7 +825,7 @@ Item {
 
                         var currentItemHeight = 48;
                         if (currentIndex === root.expandedItemIndex && !root.deleteMode && !root.renameMode) {
-                            var listHeight = 36 * 3;
+                            var listHeight = 36 * 5;
                             currentItemHeight = 48 + 4 + listHeight + 8;
                         }
 
@@ -829,7 +853,7 @@ Item {
                     height: {
                         let baseHeight = 48;
                         if (index === root.expandedItemIndex && !isInDeleteMode && !isInRenameMode) {
-                            var listHeight = 36 * 3; // Always 3 options: Open, Rename, Quit
+                            var listHeight = 36 * 5; // 5 options: Open, Rename, Quit, Claude, Copilot
                             return baseHeight + 4 + listHeight + 8; // base + spacing + list + bottom margin
                         }
                         return baseHeight;
@@ -1016,7 +1040,7 @@ Item {
 
                         ClippingRectangle {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 36 * 3 // Always 3 options
+                            Layout.preferredHeight: 36 * 5 // 5 options
                             color: Colors.background
                             radius: Styling.radius(0)
 
@@ -1061,6 +1085,26 @@ Item {
                                         textColor: Styling.srItem("error"),
                                         action: function () {
                                             root.enterDeleteMode(modelData.name);
+                                            root.expandedItemIndex = -1;
+                                        }
+                                    },
+                                    {
+                                        text: "Claude",
+                                        icon: Icons.robot,
+                                        highlightColor: Styling.srItem("overprimary"),
+                                        textColor: Styling.srItem("primary"),
+                                        action: function () {
+                                            root.openWithAi(modelData.name, "claude");
+                                            root.expandedItemIndex = -1;
+                                        }
+                                    },
+                                    {
+                                        text: "Copilot",
+                                        icon: Icons.sparkle,
+                                        highlightColor: Styling.srItem("overprimary"),
+                                        textColor: Styling.srItem("primary"),
+                                        action: function () {
+                                            root.openWithAi(modelData.name, "copilot");
                                             root.expandedItemIndex = -1;
                                         }
                                     }
