@@ -46,12 +46,26 @@ Item {
                     Layout.fillWidth: true
                     variant: "surface"
                     radius: Styling.radius(8)
-                    
+
                     // We need a wrapper to give it a height based on content
                     implicitHeight: providerCol.implicitHeight + 32
 
                     // CLI-only providers (no API key — just enable/disable)
                     readonly property bool isCli: modelData === "ollama" || modelData === "claudecode" || modelData === "copilot"
+
+                    // Process must live outside ColumnLayout (non-visual items break layout sizing)
+                    Process {
+                        id: authProcess
+
+                        function openAuth(provider) {
+                            let term = Quickshell.env("TERMINAL") || "kitty";
+                            let cmd = provider === "copilot"
+                                ? "npm install -g @github/copilot && copilot login"
+                                : "claude auth login";
+                            authProcess.command = [term, "-e", "bash", "-c", cmd + "; echo Done — press Enter to close; read"];
+                            authProcess.running = true;
+                        }
+                    }
 
                     ColumnLayout {
                         id: providerCol
@@ -122,20 +136,6 @@ Item {
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
-                            }
-                        }
-
-                        // Process that opens a terminal to run the auth command
-                        Process {
-                            id: authProcess
-
-                            function openAuth(provider) {
-                                let term = Quickshell.env("TERMINAL") || "kitty";
-                                let cmd = provider === "copilot"
-                                    ? "npm install -g @github/copilot && copilot login"
-                                    : "claude auth login";
-                                authProcess.command = [term, "-e", "bash", "-c", cmd + "; echo Done — press Enter to close; read"];
-                                authProcess.running = true;
                             }
                         }
 
