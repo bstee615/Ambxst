@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 import qs.modules.theme
 import qs.modules.components
 import qs.modules.services
@@ -83,17 +84,59 @@ Item {
                             }
                         }
 
-                        // Show description for CLI tools
-                        Text {
+                        // Description + Authenticate button for CLI tools
+                        RowLayout {
                             visible: modelData === "claudecode" || modelData === "copilot"
-                            text: modelData === "copilot"
-                                ? "Uses `gh copilot suggest`. Run `gh auth login` and install the Copilot extension."
-                                : "Uses the installed `claude` binary. Run `claude auth login` to authenticate."
-                            font.family: Config.theme.font
-                            font.pixelSize: 11
-                            color: Colors.outline
-                            wrapMode: Text.WordWrap
                             Layout.fillWidth: true
+                            spacing: 8
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: modelData === "copilot"
+                                    ? "Uses `gh copilot suggest` with your existing `gh` credentials."
+                                    : "Uses the installed `claude` binary with your existing credentials."
+                                font.family: Config.theme.font
+                                font.pixelSize: 11
+                                color: Colors.outline
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Button {
+                                text: "Authenticate"
+                                hoverEnabled: true
+                                leftPadding: 6
+                                rightPadding: 6
+                                topPadding: 4
+                                bottomPadding: 4
+
+                                onClicked: authProcess.openAuth(modelData)
+
+                                background: StyledRect {
+                                    variant: parent.hovered ? "primaryfocus" : "surface"
+                                    radius: Styling.radius(4)
+                                }
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: Colors.overSurface
+                                    font.family: Config.theme.font
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+                        }
+
+                        // Process that opens a terminal to run the auth command
+                        Process {
+                            id: authProcess
+
+                            function openAuth(provider) {
+                                let term = Quickshell.env("TERMINAL") || "kitty";
+                                let cmd = provider === "copilot"
+                                    ? "gh auth login && gh extension install github/gh-copilot"
+                                    : "claude auth login";
+                                authProcess.command = [term, "-e", "bash", "-c", cmd + "; echo Done — press Enter to close; read"];
+                                authProcess.running = true;
+                            }
                         }
 
                         RowLayout {
