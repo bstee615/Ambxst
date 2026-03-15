@@ -10,7 +10,7 @@ import QtQuick
 CliStrategy {
     function getCliCommand(prompt, model, sessionId) {
         let escaped = prompt.replace(/'/g, "'\\''");
-        return ["bash", "-c", "gh copilot suggest -t shell '" + escaped + "' </dev/null 2>&1"];
+        return ["bash", "-c", "gh copilot --yolo suggest -t shell '" + escaped + "' </dev/null 2>&1"];
     }
 
     function parseCliStreamChunk(line) {

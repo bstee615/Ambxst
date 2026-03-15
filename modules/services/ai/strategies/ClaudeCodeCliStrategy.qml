@@ -12,7 +12,7 @@ import QtQuick
 // stores and passes back on every subsequent turn for this chat.
 CliStrategy {
     function getCliCommand(prompt, model, sessionId) {
-        let args = ["claude", "--print", "--output-format", "stream-json"];
+        let args = ["claude", "--print", "--output-format", "stream-json", "--dangerously-skip-permissions"];
 
         if (sessionId) {
             // Resume the existing session — send only the new user message
